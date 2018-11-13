@@ -1,0 +1,16 @@
+Install RGB-D SLAM:
+    - see https://github.com/felixendres/rgbdslam_v2/wiki/Instructions-for-Compiling-Rgbdslam-(V2)-on-a-Fresh-Ubuntu-16.04-Install-(Ros-Kinetic)-in-Virtualbox
+
+Download a bag file and grountruth file
+    - from https://vision.in.tum.de/data/datasets/rgbd-dataset/download
+    - put in `$(rospack find rgbdslam)/tests`
+
+Run the tests (on whatever data is in `$(rospack find rgbdslam)/tests`)
+    - `rosrun rgbdslam run_tests.sh`
+    - This will dump result (.txt format) in subfolders starting with the date
+    - e.g. /home/vjkurtz/catkin_ws/src/rgbdslam_v2/test/2018-11-08_16:46/emm__0.00/CANDIDATES_4/RANSAC_100/OPT_SKIP_10/ORB/600_Features/rgbd_dataset_freiburg1_room
+
+Load and analyze this data
+    - bayes_analysis.py
+
+
