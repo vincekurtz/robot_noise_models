@@ -10,8 +10,8 @@ import csv
 import sys
 import numpy as np
 import matplotlib.pyplot as plt
-from scipy.stats import invwishart, multivariate_normal
 from statsmodels.tsa.stattools import acf
+from noise_models import *
 
 # this directory contains tools from the ros package for postprocessing data
 benchmark_dir = "/home/vjkurtz/catkin_ws/src/rgbdslam_v2/rgbd_benchmark"
@@ -56,85 +56,6 @@ def preprocess(first_file, second_file):
     second_xyz_aligned = rot * second_xyz + trans
 
     return first_xyz, second_xyz_aligned
-
-def posterior_inference(error):
-    """
-    Assume that errors are drawn from a gaussian distribution with zero mean. 
-    Find posterior inference over the variance.
-
-    returns a scipy.stats random variable object
-    """
-
-    # Prior on Sigma: Inverse-Wishart with d+1=4 degrees of freedom
-    #   this gives uniform marginal prior on pairwise correlations (see Gelman p 73)
-    v = 4
-    W = np.identity(3)
-
-    # Posterior on Sigma: see https://en.wikipedia.org/wiki/Inverse-Wishart_distribution#Conjugate_distribution
-    n = len(error.T)
-    A = error * error.T
-    v_post = v + n
-    W_post = W + A
-
-    posterior = invwishart(v_post, W_post)
-
-    return posterior
-
-def simulate_run(posterior, ground_truth):
-    """
-    Given a posterior distribution over the error and the actual value, 
-    generate a simulated run.
-    """
-    n = len(ground_truth.T)
-
-    simulated_run = np.full(ground_truth.shape, np.inf)
-
-    for i in range(n):
-        # sample the variance
-        Sigma = posterior.rvs(size=1)
-
-        # sample a disturbance from the ground truth mean
-        dist = multivariate_normal.rvs(np.zeros(3),Sigma)
-
-        # apply this disturbance to calculate the real trajectory
-        simulated_run[:,i] = ground_truth.T[i] + dist
-
-    return simulated_run
-
-def simulate_error(posterior, n):
-    """
-    Generate a sequence of errors with length n, drawing from the
-    given posterior distribution.
-    """
-
-    simulated_error = np.full((3,n), np.inf)
-
-    # make n sample of the variance
-    Sigmas = posterior.rvs(size=n)
-
-    for i in range(n):
-        # sample the variance
-        Sigma = Sigmas[i]
-
-        # sample from the error distribution
-        simulated_error[:,i] = multivariate_normal.rvs(np.zeros(3), Sigma)
-
-    return simulated_error
-
-
-def simulate_errors(posterior, num_runs, len_runs):
-    """
-    Given a posterior distirbution over variance, this function generates a 
-    list of simulated errors. Each run has length (len_runs) and there are
-    (num_runs) in total.
-    """
-    runs = [] 
-    
-    for i in range(num_runs):
-        run = simulate_error(posterior, len_runs)
-        runs.append(run)
-
-    return runs
 
 def plot_errors(actual_error, simulated_error):
     """
@@ -210,22 +131,22 @@ def bayesian_p_value(actual, simulated, T, plot=False, title=""):
 
     return p
 
-def plot_many_p_values(actual_error, simulated_errors, axis=0):
+def plot_p_values(actual_error, simulated_errors, axis=0):
     """
     Make a cute plot of Bayesian P-values and histograms for
     a variety of test statistics on the given axis.
 
     Statistics used:
-        - minimum
-        - maximum
+        - min/max
+        - quantile
         - mean
+        - median
         - variance
+        - autocorrelation
     """
     # Just consider error on the given axis, which we'll call 'x' w.l.o.g.
     actual_error_x = np.asarray(actual_error[axis,:])   # convert to np array since matrix messes things up
     simulated_errors_x = [ np.asarray(sim_err[axis,:]) for sim_err in simulated_errors ]
-
-    print(actual_error_x)
 
     # Minimum
     plt.subplot(2,4,1)
@@ -265,21 +186,30 @@ def plot_many_p_values(actual_error, simulated_errors, axis=0):
 
     plt.show()
 
-
-
-if __name__=="__main__":
+def summary_plots(noise_model, n_samples=50):
+    """
+    Given a noise model object (from noise_models.py), calculate and show some summary plots.
+    """
     print("===> Loading Data")
     ground_truth, estimate = preprocess(ground_truth_file, estimate_file)
     actual_error = ground_truth - estimate
 
-    print("===> Performing Posterior Inference")
-    post = posterior_inference(actual_error)
+    # Set up a simulator that assumes a normal likelihood function
+    print("===> Getting Posterior Inference")
+    noise_model.posterior_inference(ground_truth, estimate)
 
-    print("===> Simulating Errors")
-    sim_errors = simulate_errors(post, 50, len(actual_error.T))
+    # Simulate a bunch of errors
+    print("===> Simulating Error Set")
+    sim_errors = normal_sim.simulate_error_set(n_samples,len(ground_truth.T))
 
-    print("===> Calculating Bayesian P-Value")
-    plot_many_p_values(actual_error, sim_errors)
+    # Compare these to the actual error
+    print("===> Calculating P-Values")
+    plot_p_values(actual_error, sim_errors, axis=0)
+
+    plot_errors(actual_error, sim_errors[0])
 
 
+if __name__=="__main__":
+    normal_sim = NormalLikelihood()
+    summary_plots(normal_sim)
 
