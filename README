@@ -1,5 +1,15 @@
 Install RGB-D SLAM:
-    - see https://github.com/felixendres/rgbdslam_v2/wiki/Instructions-for-Compiling-Rgbdslam-(V2)-on-a-Fresh-Ubuntu-16.04-Install-(Ros-Kinetic)-in-Virtualbox
+
+Dependencies
+    - RGB-D SLAM (see https://github.com/felixendres/rgbdslam_v2/wiki/Instructions-for-Compiling-Rgbdslam-(V2)-on-a-Fresh-Ubuntu-16.04-Install-(Ros-Kinetic)-in-Virtualbox)
+    - python
+    - cython (for importing tools from RGB-D SLAM)
+    - python libraries
+        - numpy
+        - scipy
+        - csv
+        - matplotlib
+        - statsmodels
 
 Download a bag file and grountruth file
     - from https://vision.in.tum.de/data/datasets/rgbd-dataset/download

@@ -11,6 +11,7 @@ import sys
 import numpy as np
 import matplotlib.pyplot as plt
 from scipy.stats import invwishart, multivariate_normal
+from statsmodels.tsa.stattools import acf
 
 # this directory contains tools from the ros package for postprocessing data
 benchmark_dir = "/home/vjkurtz/catkin_ws/src/rgbdslam_v2/rgbd_benchmark"
@@ -58,7 +59,7 @@ def preprocess(first_file, second_file):
 
 def posterior_inference(error):
     """
-    Assume that erros are drawn from a gaussian distribution with zero mean. 
+    Assume that errors are drawn from a gaussian distribution with zero mean. 
     Find posterior inference over the variance.
 
     returns a scipy.stats random variable object
@@ -108,9 +109,12 @@ def simulate_error(posterior, n):
 
     simulated_error = np.full((3,n), np.inf)
 
+    # make n sample of the variance
+    Sigmas = posterior.rvs(size=n)
+
     for i in range(n):
         # sample the variance
-        Sigma = posterior.rvs(size=1)
+        Sigma = Sigmas[i]
 
         # sample from the error distribution
         simulated_error[:,i] = multivariate_normal.rvs(np.zeros(3), Sigma)
@@ -152,7 +156,7 @@ def plot_errors(actual_error, simulated_error):
 
     plt.show()
 
-def plot_residuals(ground_truth, actual_run, posterior):
+def plot_residuals(actual, simulated):
     """
     Given posterior inference over the errors from the actual run
     and a ground truth run, plot the bayesian residuals of the estimated
@@ -160,7 +164,7 @@ def plot_residuals(ground_truth, actual_run, posterior):
     """
     pass
 
-def bayesian_p_value(actual_error, simulated_errors, T, plot=True, title="P Value"):
+def bayesian_p_value(actual, simulated, T, plot=False, title=""):
     """
     Given a run of actual values, a list of similar simulated values
     and a test statistic, calculate the Bayesian P value. If requested, 
@@ -184,28 +188,82 @@ def bayesian_p_value(actual_error, simulated_errors, T, plot=True, title="P Valu
     # Generate a bunch of sample runs and calculate their statistic
     stats = []
 
-    for run in simulated_errors:
+    for run in simulated:
         stats.append( T(run) )
 
 
     # Calculate the actual value of the statistic
-    actual_stat = T(actual_error)
+    actual_stat = T(actual)
 
     # figure out the proportion of simulated stats that are above the actual stat
     n_above = sum( i > actual_stat for i in stats )
-    p = float(n_above) / float(len(simulated_errors))
+    p = float(n_above) / float(len(simulated))
 
     # Create a histogram of this statistic
     if plot:
         plt.hist(stats, label="simulated data")
         plt.axvline(actual_stat, color="red", label="actual value")
-        plt.title(title + " P = %s" % (p))
+        plt.title(title + " (p=%s)" % (p))
         plt.xlabel("Value of Test Statistic")
         plt.ylabel("Frequency")
         plt.legend()
 
     return p
 
+def plot_many_p_values(actual_error, simulated_errors, axis=0):
+    """
+    Make a cute plot of Bayesian P-values and histograms for
+    a variety of test statistics on the given axis.
+
+    Statistics used:
+        - minimum
+        - maximum
+        - mean
+        - variance
+    """
+    # Just consider error on the given axis, which we'll call 'x' w.l.o.g.
+    actual_error_x = np.asarray(actual_error[axis,:])   # convert to np array since matrix messes things up
+    simulated_errors_x = [ np.asarray(sim_err[axis,:]) for sim_err in simulated_errors ]
+
+    print(actual_error_x)
+
+    # Minimum
+    plt.subplot(2,4,1)
+    bayesian_p_value(actual_error_x, simulated_errors_x, np.min, plot=True, title="Minimum")
+
+    # Maximum
+    plt.subplot(2,4,2)
+    bayesian_p_value(actual_error_x, simulated_errors_x, np.max, plot=True, title="Maximum")
+
+    # 10% quantile
+    plt.subplot(2,4,3)
+    low_quant = lambda x : np.percentile(x, 10.0)
+    bayesian_p_value(actual_error_x, simulated_errors_x, low_quant, plot=True, title="10% Quantile")
+
+    # 90% quanitle
+    plt.subplot(2,4,4)
+    high_quant = lambda x : np.percentile(x, 90.0)
+    bayesian_p_value(actual_error_x, simulated_errors_x, high_quant, plot=True, title="90% Quantile")
+
+    # Mean
+    plt.subplot(2,4,5)
+    bayesian_p_value(actual_error_x, simulated_errors_x, np.mean, plot=True, title="Mean")
+
+    # Median
+    plt.subplot(2,4,6)
+    bayesian_p_value(actual_error_x, simulated_errors_x, np.median, plot=True, title="Median")
+
+    # Autocorrelation with lag t=10
+    plt.subplot(2,4,7)
+    t = 10
+    auto_corr = lambda x : acf(x,nlags=t)[t]
+    bayesian_p_value(actual_error_x, simulated_errors_x, auto_corr, plot=True, title="Autocorrelation with lag 10")
+
+    # Variance
+    plt.subplot(2,4,8)
+    bayesian_p_value(actual_error_x, simulated_errors_x, np.var, plot=True, title="Variance")
+
+    plt.show()
 
 
 
@@ -221,10 +279,7 @@ if __name__=="__main__":
     sim_errors = simulate_errors(post, 50, len(actual_error.T))
 
     print("===> Calculating Bayesian P-Value")
-    T = np.min
-    bayesian_p_value(actual_error, sim_errors, T)
-    plt.show()
+    plot_many_p_values(actual_error, sim_errors)
 
-    plot_errors(actual_error, sim_errors[0])
 
 
