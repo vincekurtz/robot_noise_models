@@ -9,7 +9,8 @@
 ##
 
 import numpy as np
-from scipy.stats import invwishart, multivariate_normal
+import matplotlib.pyplot as plt
+from scipy.stats import invwishart, multivariate_normal, pareto, uniform
 
 class NoiseModel:
     """
@@ -111,4 +112,61 @@ class NormalLikelihood(NoiseModel):
 
         return simulated_error
 
+class UniformLikelihood(NoiseModel):
+    """
+    Assumes that SLAM observations in each axis are drawn from a uniform distribution
+    centered on the actual value with unknown support.
+    """
+    def posterior_inference(self, ground_truth_data, estimate_data):    
+
+        assert ground_truth_data.shape == estimate_data.shape , "Ground truth and estimate shapes don't match!"
+        error = np.asarray(ground_truth_data - estimate_data)
+        n = len(error.T)
+
+        # Prior: Pareto distribution with 
+        # shape parameter k=0.1 and scale parameter v=0.1
+        k = 0.01
+        v = 0.01
+
+        # Posterior: Pareto distribution with updated shape and scale parameters.
+        # we have different scale parameters for x, y, z.
+        k_post = k + n
+
+        v_post_x = max( v, max(abs(error[0,:])) )
+        v_post_y = max( v, max(abs(error[1,:])) )
+        v_post_z = max( v, max(abs(error[2,:])) )
+
+        # Generate scipy random variable objects
+        self.posterior_x = pareto(k_post,loc=0,scale=v_post_x)
+        self.posterior_y = pareto(k_post,loc=0,scale=v_post_y)
+        self.posterior_z = pareto(k_post,loc=0,scale=v_post_z)
+
+        self.has_inference = True
+
+    def simulate_error(self, n):
+        """
+        Simulate errors from the actual observation according to this noise model
+        """
+        assert self.has_inference , "No posterior inference available yet!"
+       
+        simulated_error = np.full((3,n), np.inf)
+
+        # Draw posterior samples of the bounds on the uniform distribution
+        x_bounds = self.posterior_x.rvs(size=n)
+        y_bounds = self.posterior_y.rvs(size=n)
+        z_bounds = self.posterior_z.rvs(size=n)
+
+        # Use these samples to draw from the noise distribution (uniform)
+        for i in range(n):
+            x_bound = x_bounds[i]
+            y_bound = y_bounds[i]
+            z_bound = z_bounds[i]
+
+            x_err = uniform.rvs(loc=(-x_bound), scale=(2*x_bound))
+            y_err = uniform.rvs(loc=(-y_bound), scale=(2*y_bound))
+            z_err = uniform.rvs(loc=(-z_bound), scale=(2*z_bound))
+
+            simulated_error[:,i] = np.array([x_err,y_err,z_err])
+
+        return simulated_error
     
