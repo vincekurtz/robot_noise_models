@@ -10,6 +10,7 @@
 
 import numpy as np
 import matplotlib.pyplot as plt
+from sklearn import gaussian_process as gp
 from scipy.stats import invwishart, multivariate_normal, pareto, uniform
 
 class NoiseModel:
@@ -170,3 +171,51 @@ class UniformLikelihood(NoiseModel):
 
         return simulated_error
     
+class GaussianProcessLikelihood(NoiseModel):
+    """
+    Assumes that SLAM observations are drawn from a normal distribution
+    with mean = actual position and unknown but correlated variances
+    """
+    def posterior_inference(self, ground_truth_data, estimate_data):    
+        """
+        Draw estimated errors from an RBF kernel with the given hyperparameters
+        """
+        
+        assert ground_truth_data.shape == estimate_data.shape , "Ground truth and estimate shapes don't match!"
+        error = ground_truth_data - estimate_data
+        n = len(error.T)
+
+        # For now, we'll arbitrarily set the hyperparameters:
+        self.length_scale = 5
+        self.signal_variance = 2
+        self.noise_variance = 0
+
+        self.has_inference = True
+
+    def simulate_error(self, N):
+        """
+        Simulate errors from the actual observation according to this noise model
+        """
+        assert self.has_inference , "No posterior inference available yet!"
+       
+        simulated_error = np.full((3,N), np.inf)
+
+        # define the kernel function (scaled RBF with noise)
+        kernel = self.signal_variance * gp.kernels.RBF(length_scale=self.length_scale) + gp.kernels.WhiteKernel(noise_level=self.noise_variance)
+
+        # T is the sequence of possible time values
+        T = np.arange(N)
+        T = T[:,None]
+
+        # Sampling from the GP at times T gives a multivarite normal distribution with this mean and covariance
+        mu = np.zeros((N))
+        Sigma = kernel(T,T)
+
+        # We'll take independent samples of the same distribution for each of (x,y,z)
+        x_sim = multivariate_normal.rvs(mu,Sigma)
+        y_sim = multivariate_normal.rvs(mu,Sigma)
+        z_sim = multivariate_normal.rvs(mu,Sigma)
+
+        simulated_error = np.array((x_sim, y_sim, z_sim))
+
+        return simulated_error
