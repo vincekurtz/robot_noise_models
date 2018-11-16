@@ -10,7 +10,8 @@
 
 import numpy as np
 import matplotlib.pyplot as plt
-from sklearn import gaussian_process as gp
+from sklearn.gaussian_process import GaussianProcessRegressor
+from sklearn.gaussian_process.kernels import RBF, WhiteKernel, ConstantKernel, Matern, RationalQuadratic
 from scipy.stats import invwishart, multivariate_normal, pareto, uniform
 
 class NoiseModel:
@@ -176,7 +177,7 @@ class GaussianProcessLikelihood(NoiseModel):
     Assumes that SLAM observations are drawn from a normal distribution
     with mean = actual position and unknown but correlated variances
     """
-    def posterior_inference(self, ground_truth_data, estimate_data):    
+    def posterior_inference(self, ground_truth_data, estimate_data, optimize=True):    
         """
         Draw estimated errors from an RBF kernel with the given hyperparameters
         """
@@ -185,12 +186,52 @@ class GaussianProcessLikelihood(NoiseModel):
         error = ground_truth_data - estimate_data
         n = len(error.T)
 
-        # For now, we'll arbitrarily set the hyperparameters:
-        self.length_scale = 5
-        self.signal_variance = 2
-        self.noise_variance = 0
+        # set up the kernel: there are many options, and choosing between them is another problem...
+
+        # classic RBF kernel with some scaling factors and the possibility of additive white noise
+        kernel = ConstantKernel(constant_value=5e-3, constant_value_bounds=(1e-10,1e5)) * \
+                RBF(length_scale=50.0, length_scale_bounds=(1e-5,1e5)) + \
+                WhiteKernel(noise_level=1e-5, noise_level_bounds=(1e-8,1e5))
+
+        # this particular structure seems to match the example
+        kernel2 = ConstantKernel(constant_value=0.01)*RBF(length_scale=20) + \
+                ConstantKernel(constant_value=0.0001)*RBF(length_scale=1)
+
+        # Simple option: RBF with scaling factor
+        kernel3 = ConstantKernel(constant_value=5e-3)*RBF(length_scale=20)
+
+        # Matern
+        kernel4 = ConstantKernel(constant_value=5e-3)*Matern(length_scale=1,nu=1) + WhiteKernel(noise_level=1e-3)
+
+        # Matern w/o white noise
+        kernel5 = ConstantKernel(constant_value=5e-3)*Matern(length_scale=1,nu=1)
+
+        # Rational Quadratic: scale micture of RBF kernels
+        kernel6 = ConstantKernel(constant_value=5e-3)*RationalQuadratic(length_scale=1,alpha=0.1) + WhiteKernel(noise_level=1e-5)
+
+        # set up the training data
+        # TODO train on more than one axis
+        X = np.arange(n)[:,None]
+        y = np.asarray(error[0].T).flatten()   # just train on one run for now
+
+        optimizer = GaussianProcessRegressor(kernel=kernel4, n_restarts_optimizer=0)
+        if optimize:
+            # Get MLE of hyperparameters (a.k.a. MLE II)
+            optimizer.fit(X,y)
+            opt_kernel = optimizer.kernel_
+        else:
+            # use prior kernel: for testing only
+            opt_kernel = optimizer.kernel
+        
+        # Print kernels with optimized parameters
+        print("Initial kernel: %s" % optimizer.kernel)
+        print("Optimized kernel: %s" % opt_kernel)
+
+        # Save an GaussianProcessRegressor object with the optimized kernel.
+        self.gp = GaussianProcessRegressor(kernel=opt_kernel)
 
         self.has_inference = True
+
 
     def simulate_error(self, N):
         """
@@ -200,22 +241,10 @@ class GaussianProcessLikelihood(NoiseModel):
        
         simulated_error = np.full((3,N), np.inf)
 
-        # define the kernel function (scaled RBF with noise)
-        kernel = self.signal_variance * gp.kernels.RBF(length_scale=self.length_scale) + gp.kernels.WhiteKernel(noise_level=self.noise_variance)
-
         # T is the sequence of possible time values
-        T = np.arange(N)
-        T = T[:,None]
+        T = np.arange(N)[:,None]
 
-        # Sampling from the GP at times T gives a multivarite normal distribution with this mean and covariance
-        mu = np.zeros((N))
-        Sigma = kernel(T,T)
-
-        # We'll take independent samples of the same distribution for each of (x,y,z)
-        x_sim = multivariate_normal.rvs(mu,Sigma)
-        y_sim = multivariate_normal.rvs(mu,Sigma)
-        z_sim = multivariate_normal.rvs(mu,Sigma)
-
-        simulated_error = np.array((x_sim, y_sim, z_sim))
+        # Sample from the trained gaussian process
+        simulated_error = self.gp.sample_y(T,3).T
 
         return simulated_error

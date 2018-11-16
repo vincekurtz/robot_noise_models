@@ -63,19 +63,17 @@ def plot_errors(actual_error, simulated_error):
     of each. This will give a qualitative sense of whether the noise model 
     makes sense.
     """
-    plt.subplot(2,1,1)
-    plt.plot(actual_error.T)
-    plt.xlabel("timestep")
-    plt.ylabel("tracking error")
-    plt.title("Actual Error")
+    fig, (ax1, ax2) = plt.subplots(2,1,sharey=True)
 
-    plt.subplot(2,1,2)
-    plt.plot(simulated_error.T)
-    plt.title("Simulated Error")
-    plt.xlabel("timestep")
-    plt.ylabel("tracking error")
+    ax1.plot(actual_error.T)
+    #ax1.set_xlabel("timestep")
+    ax1.set_ylabel("tracking error")
+    ax1.set_title("Actual Error")
 
-    plt.show()
+    ax2.plot(simulated_error.T)
+    ax2.set_xlabel("timestep")
+    ax2.set_ylabel("tracking error")
+    ax2.set_title("Simulated Error")
 
 def plot_residuals(actual, simulated):
     """
@@ -144,6 +142,8 @@ def plot_p_values(actual_error, simulated_errors, axis=0):
         - variance
         - autocorrelation
     """
+    plt.figure()
+
     # Just consider error on the given axis, which we'll call 'x' w.l.o.g.
     actual_error_x = np.asarray(actual_error[axis,:])   # convert to np array since matrix messes things up
     simulated_errors_x = [ np.asarray(sim_err[axis,:]) for sim_err in simulated_errors ]
@@ -184,8 +184,6 @@ def plot_p_values(actual_error, simulated_errors, axis=0):
     plt.subplot(2,4,8)
     bayesian_p_value(actual_error_x, simulated_errors_x, np.var, plot=True, title="Variance")
 
-    plt.show()
-
 def summary_plots(noise_model, n_samples=50):
     """
     Given a noise model object (from noise_models.py), calculate and show some summary plots.
@@ -200,7 +198,7 @@ def summary_plots(noise_model, n_samples=50):
 
     # Simulate a bunch of errors
     print("===> Simulating Error Set")
-    sim_errors = normal_sim.simulate_error_set(n_samples,len(ground_truth.T))
+    sim_errors = noise_model.simulate_error_set(n_samples,len(ground_truth.T))
 
     # Compare these to the actual error
     print("===> Calculating P-Values")
@@ -208,8 +206,17 @@ def summary_plots(noise_model, n_samples=50):
 
     plot_errors(actual_error, sim_errors[0])
 
+    print("===> Displaying Plots")
+    plt.show()
+
 
 if __name__=="__main__":
     normal_sim = NormalLikelihood()
-    summary_plots(normal_sim)
+    uniform_sim = UniformLikelihood()
+
+    gp_sim = GaussianProcessLikelihood()
+    summary_plots(gp_sim, n_samples=1)
+
+    #summary_plots(uniform_sim)
+    #summary_plots(normal_sim)
 
